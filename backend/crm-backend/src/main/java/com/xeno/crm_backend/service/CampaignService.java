@@ -11,6 +11,7 @@ import com.xeno.crm_backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,9 @@ public class CampaignService {
 
     @Value("${channel.service.url:http://localhost:9090}")
     private String channelServiceUrl;
+
+    @Lazy
+    private final SegmentService segmentService;
 
     // ---------------------------------------------------
     // CREATE campaign (draft)
@@ -204,25 +208,25 @@ public class CampaignService {
 
     @Async
     protected void fireAsyncSends(List<CampaignLog> logs, String channel) {
-        for (CampaignLog log : logs) {
+        for (CampaignLog campaignLog : logs) {
             try {
-                sendToChannelService(log, channel);
+                sendToChannelService(campaignLog, channel);
                 // Mark as SENT
-                log.setStatus(MessageStatus.SENT);
-                log.setSentAt(LocalDateTime.now());
-                campaignLogRepository.save(log);
+                campaignLog.setStatus(MessageStatus.SENT);
+                campaignLog.setSentAt(LocalDateTime.now());
+                campaignLogRepository.save(campaignLog);
 
                 // Record sent event
                 campaignEventRepository.save(CampaignEvent.builder()
-                        .log(log)
+                        .log(campaignLog)
                         .eventType("sent")
                         .occurredAt(LocalDateTime.now())
                         .build());
 
             } catch (Exception e) {
-                log.warn("Failed to send log {}: {}", log.getId(), e.getMessage());
-                log.setStatus(MessageStatus.FAILED);
-                campaignLogRepository.save(log);
+                log.warn("Failed to send logId {}: {}", campaignLog.getId(), e.getMessage());
+                campaignLog.setStatus(MessageStatus.FAILED);
+                campaignLogRepository.save(campaignLog);
             }
         }
     }
@@ -254,13 +258,8 @@ public class CampaignService {
                     .toList();
         }
 
-        // Re-execute rules (lazy materialization)
-        // We need SegmentService here — avoid circular dependency
-        // by using the rules directly
-        // For now return empty — will be wired via SegmentService
-        return existing.stream()
-                .map(SegmentCustomer::getCustomerId)
-                .toList();
+        // Re-execute rules fresh at launch time
+        return segmentService.executeRules(segment.getRules());
     }
 
     private String personalizeMessage(String template, Customer customer) {
