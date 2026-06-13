@@ -42,6 +42,7 @@ public class CampaignService {
     @Lazy
     private final SegmentService segmentService;
 
+    private final AsyncSenderService asyncSenderService;
     // ---------------------------------------------------
     // CREATE campaign (draft)
     // ---------------------------------------------------
@@ -125,7 +126,10 @@ public class CampaignService {
         campaignRepository.save(campaign);
 
         // Step 5 — Fire async sends (non-blocking)
-        fireAsyncSends(logs, campaign.getChannel());
+        List<UUID> logIds = logs.stream()
+                .map(CampaignLog::getId)
+                .toList();
+        asyncSenderService.sendAll(logIds, campaign.getChannel());
 
         return toResponse(campaign);
     }
@@ -168,6 +172,7 @@ public class CampaignService {
         return toResponse(campaign);
     }
 
+
     public List<CampaignResponse> getAllCampaigns() {
         return campaignRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
@@ -206,47 +211,9 @@ public class CampaignService {
     // PRIVATE HELPERS
     // ---------------------------------------------------
 
-    @Async
-    protected void fireAsyncSends(List<CampaignLog> logs, String channel) {
-        for (CampaignLog campaignLog : logs) {
-            try {
-                sendToChannelService(campaignLog, channel);
-                // Mark as SENT
-                campaignLog.setStatus(MessageStatus.SENT);
-                campaignLog.setSentAt(LocalDateTime.now());
-                campaignLogRepository.save(campaignLog);
 
-                // Record sent event
-                campaignEventRepository.save(CampaignEvent.builder()
-                        .log(campaignLog)
-                        .eventType("sent")
-                        .occurredAt(LocalDateTime.now())
-                        .build());
 
-            } catch (Exception e) {
-                log.warn("Failed to send logId {}: {}", campaignLog.getId(), e.getMessage());
-                campaignLog.setStatus(MessageStatus.FAILED);
-                campaignLogRepository.save(campaignLog);
-            }
-        }
-    }
 
-    private void sendToChannelService(CampaignLog log, String channel) {
-        String url = channelServiceUrl + "/send";
-
-        Map<String, Object> payload = Map.of(
-                "logId",     log.getId().toString(),
-                "recipient", log.getCustomer().getPhone(),
-                "message",   log.getPersonalizedMessage(),
-                "channel",   channel
-        );
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
-
-        restTemplate.postForEntity(url, entity, Void.class);
-    }
 
     private List<UUID> getOrMaterializeSegmentCustomers(Segment segment) {
         List<SegmentCustomer> existing =
@@ -301,17 +268,28 @@ public class CampaignService {
     }
 
     private boolean shouldUpdateStatus(MessageStatus current, MessageStatus incoming) {
-        // Status progression order
+        // Terminal states — never overwrite
+        if (current == MessageStatus.FAILED || current == MessageStatus.CLICKED) {
+            return false;
+        }
+
+        // FAILED can only be set from QUEUED or SENT
+        if (incoming == MessageStatus.FAILED) {
+            return current == MessageStatus.QUEUED || current == MessageStatus.SENT;
+        }
+
         List<MessageStatus> order = List.of(
                 MessageStatus.QUEUED,
                 MessageStatus.SENT,
                 MessageStatus.DELIVERED,
-                MessageStatus.FAILED,
                 MessageStatus.OPENED,
                 MessageStatus.READ,
                 MessageStatus.CLICKED
         );
-        return order.indexOf(incoming) > order.indexOf(current);
+
+        int currentIdx  = order.indexOf(current);
+        int incomingIdx = order.indexOf(incoming);
+        return incomingIdx > currentIdx;
     }
 
     private MessageStatus parseStatus(String status) {
