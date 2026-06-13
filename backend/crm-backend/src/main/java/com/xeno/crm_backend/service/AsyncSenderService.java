@@ -30,7 +30,7 @@ public class AsyncSenderService {
     @Value("${channel.service.url:http://localhost:9090}")
     private String channelServiceUrl;
 
-    @Async
+    @Async("taskExecutor")
     public void sendAll(List<UUID> logIds, String channel) {
         log.info("[async] Starting sendAll for {} logs", logIds.size());
 
@@ -57,7 +57,7 @@ public class AsyncSenderService {
                 HttpEntity<Map<String, Object>> entity =
                         new HttpEntity<>(payload, headers);
 
-                restTemplate.postForEntity(url, entity, Void.class);
+                restTemplate.postForEntity(url, entity, String.class);
 
                 freshLog.setStatus(MessageStatus.SENT);
                 freshLog.setSentAt(LocalDateTime.now());

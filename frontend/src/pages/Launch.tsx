@@ -27,6 +27,7 @@ interface Stats {
   name:      string
   status:    string
   totalLogs: number
+  queued:    number
   sent:      number
   delivered: number
   opened:    number
@@ -49,6 +50,11 @@ const CHANNEL_LABELS: Record<Channel, string> = {
 function pct(num: number, denom: number) {
   if (!denom) return '0'
   return ((num / denom) * 100).toFixed(1)
+}
+
+function pctWidth(num: number, denom: number) {
+  if (!denom) return 0
+  return Math.min((num / denom) * 100, 100)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -521,7 +527,11 @@ export default function Launch() {
       {/* ══════════════════════════════════════════════════════════════════
           STAGE 4 — LIVE STATS
       ══════════════════════════════════════════════════════════════════ */}
-      {stage === 'stats' && stats && (
+      {stage === 'stats' && stats && (() => {
+        const inProgress = (stats.queued ?? 0) + stats.sent
+        const accounted  = inProgress + stats.delivered + stats.opened +
+                           stats.clicked + stats.failed
+        return (
         <div className="space-y-4">
 
           {/* Success banner */}
@@ -540,15 +550,15 @@ export default function Launch() {
             <CardContent className="py-6">
               <div className="grid grid-cols-5 gap-4">
                 <StatTile
-                  label="Total"
+                  label="Audience"
                   value={stats.totalLogs}
                   color="text-foreground"
                 />
                 <StatTile
-                  label="Sent"
-                  value={stats.sent}
-                  sub={`${pct(stats.sent, stats.totalLogs)}%`}
-                  color="text-blue-500"
+                  label="In Progress"
+                  value={inProgress}
+                  sub={`${pct(inProgress, stats.totalLogs)}%`}
+                  color="text-slate-500"
                 />
                 <StatTile
                   label="Delivered"
@@ -559,24 +569,37 @@ export default function Launch() {
                 <StatTile
                   label="Opened"
                   value={stats.opened}
-                  sub={`${pct(stats.opened, stats.delivered)}%`}
+                  sub={`${pct(stats.opened, stats.totalLogs)}%`}
                   color="text-yellow-500"
                 />
                 <StatTile
                   label="Clicked"
                   value={stats.clicked}
-                  sub={`${pct(stats.clicked, stats.opened)}%`}
+                  sub={`${pct(stats.clicked, stats.totalLogs)}%`}
                   color="text-indigo-500"
                 />
               </div>
 
+              <p className="text-xs text-muted-foreground">
+                Each customer has one status. In Progress = waiting to send or awaiting
+                delivery. When complete:{' '}
+                <span className="font-medium text-foreground">
+                  {accounted} / {stats.totalLogs}
+                </span>{' '}
+                accounted for
+                {stats.failed > 0 && (
+                  <> · <span className="text-red-500">{stats.failed} failed</span></>
+                )}
+              </p>
+
               {/* Live funnel bar */}
-              <div className="mt-5 space-y-1.5">
+              <div className="mt-3 space-y-1.5">
                 {[
-                  { label: 'Delivered', value: stats.delivered, color: 'bg-green-500' },
-                  { label: 'Opened',    value: stats.opened,    color: 'bg-yellow-500' },
-                  { label: 'Clicked',   value: stats.clicked,   color: 'bg-indigo-500' },
-                  { label: 'Failed',    value: stats.failed,    color: 'bg-red-400' },
+                  { label: 'In Progress', value: inProgress,          color: 'bg-slate-400' },
+                  { label: 'Delivered',   value: stats.delivered,     color: 'bg-green-500' },
+                  { label: 'Opened',      value: stats.opened,        color: 'bg-yellow-500' },
+                  { label: 'Clicked',     value: stats.clicked,       color: 'bg-indigo-500' },
+                  { label: 'Failed',      value: stats.failed,        color: 'bg-red-400' },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="flex items-center gap-2 text-xs">
                     <span className="w-16 text-right text-muted-foreground shrink-0">
@@ -585,11 +608,7 @@ export default function Launch() {
                     <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${color} transition-all duration-700`}
-                        style={{
-                          width: `${Math.min(
-                            pct(value, stats.totalLogs) as unknown as number, 100
-                          )}%`
-                        }}
+                        style={{ width: `${pctWidth(value, stats.totalLogs)}%` }}
                       />
                     </div>
                     <span className="w-8 text-muted-foreground">{value}</span>
@@ -649,7 +668,8 @@ export default function Launch() {
             </Button>
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

@@ -253,11 +253,14 @@ public class CampaignService {
     }
 
     private void checkAndCompleteCampaign(UUID campaignId) {
-        long total  = campaignLogRepository.countByCampaign_Id(campaignId);
+        long total = campaignLogRepository.countByCampaign_Id(campaignId);
         long queued = campaignLogRepository.countByCampaign_IdAndStatus(
                 campaignId, MessageStatus.QUEUED);
+        long sent = campaignLogRepository.countByCampaign_IdAndStatus(
+                campaignId, MessageStatus.SENT);
 
-        if (queued == 0 && total > 0) {
+        // Wait until async send + channel callbacks are fully done.
+        if (queued == 0 && sent == 0 && total > 0) {
             campaignRepository.findById(campaignId).ifPresent(c -> {
                 if (c.getStatus() == CampaignStatus.LAUNCHED) {
                     c.setStatus(CampaignStatus.COMPLETED);
@@ -306,6 +309,7 @@ public class CampaignService {
 
     private CampaignResponse toResponse(Campaign c) {
         long total     = campaignLogRepository.countByCampaign_Id(c.getId());
+        long queued    = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.QUEUED);
         long sent      = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.SENT);
         long delivered = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.DELIVERED);
         long failed    = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.FAILED);
@@ -324,6 +328,7 @@ public class CampaignService {
                 .launchedAt(c.getLaunchedAt())
                 .createdAt(c.getCreatedAt())
                 .totalLogs(total)
+                .queued(queued)
                 .sent(sent)
                 .delivered(delivered)
                 .failed(failed)

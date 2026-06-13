@@ -21,8 +21,9 @@ public class CampaignResponse {
     private String aiSummary;
     private LocalDateTime launchedAt;
     private LocalDateTime createdAt;
-    // stats
+    // stats — each message has exactly one status; all buckets sum to totalLogs
     private Long totalLogs;
+    private Long queued;
     private Long sent;
     private Long delivered;
     private Long failed;
