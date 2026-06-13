@@ -36,8 +36,7 @@ public class AsyncSenderService {
 
         for (UUID logId : logIds) {
             try {
-                // Fetch fresh in its own implicit transaction
-                CampaignLog freshLog = campaignLogRepository.findById(logId)
+                CampaignLog freshLog = campaignLogRepository.findByIdWithCustomer(logId)
                         .orElse(null);
                 if (freshLog == null) {
                     log.warn("[async] Log not found: {}", logId);
@@ -60,7 +59,6 @@ public class AsyncSenderService {
 
                 restTemplate.postForEntity(url, entity, Void.class);
 
-                // Mark as SENT
                 freshLog.setStatus(MessageStatus.SENT);
                 freshLog.setSentAt(LocalDateTime.now());
                 campaignLogRepository.save(freshLog);
@@ -73,7 +71,7 @@ public class AsyncSenderService {
 
             } catch (Exception e) {
                 log.warn("[async] Failed logId {}: {}", logId, e.getMessage());
-                campaignLogRepository.findById(logId).ifPresent(l -> {
+                campaignLogRepository.findByIdWithCustomer(logId).ifPresent(l -> {
                     l.setStatus(MessageStatus.FAILED);
                     campaignLogRepository.save(l);
                 });

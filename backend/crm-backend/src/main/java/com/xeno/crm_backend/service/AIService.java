@@ -30,10 +30,18 @@ public class AIService {
             - last_order_days_ago (number): days since customer's last order
             - total_spent (number): total amount spent across all orders in INR
             - order_count (number): total number of orders placed
-            - city (string): customer's city
+            - city (string): customer's city (e.g. Mumbai, Delhi, Bangalore)
             - gender (string): male, female, or other
+            - product_category (string): bought at least one order in this category —
+              running, casual, lifestyle, or comfort
             
             Available operators: gt, gte, lt, lte, eq
+            
+            Examples:
+            - "female customers in Mumbai who bought running shoes"
+              → gender eq female, city eq Mumbai, product_category eq running
+            - "customers who spent over 5000 but haven't ordered in 60 days"
+              → total_spent gt 5000, last_order_days_ago gt 60
             
             Return ONLY valid JSON in this exact format, no explanation, no markdown, no code blocks:
             {"operator":"AND","conditions":[{"field":"field_name","op":"operator","value":"value"}]}
@@ -41,7 +49,7 @@ public class AIService {
             Query: %s
             """.formatted(naturalLanguageQuery);
 
-        return callGroq(prompt);
+        return cleanJsonResponse(callGroq(prompt));
     }
 
     public String generateCampaignSummary(
@@ -126,5 +134,14 @@ public class AIService {
         } catch (Exception e) {
             throw new RuntimeException("AI call failed: " + e.getMessage(), e);
         }
+    }
+
+    private String cleanJsonResponse(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceFirst("^```(?:json)?\\s*", "");
+            trimmed = trimmed.replaceFirst("\\s*```$", "");
+        }
+        return trimmed.trim();
     }
 }

@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Users, Filter, Megaphone } from 'lucide-react'
+import { LayoutDashboard, Users, Filter, Megaphone, Rocket } from 'lucide-react'
 import { Separator } from '../../@/components/ui/separator'
 
 const nav = [
   { to: '/',          label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/launch',    label: 'Launch Campaign',   icon: Rocket },  
   { to: '/customers', label: 'Customers', icon: Users },
   { to: '/segments',  label: 'Segments',  icon: Filter },
   { to: '/campaigns', label: 'Campaigns', icon: Megaphone },

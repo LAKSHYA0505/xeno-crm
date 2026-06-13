@@ -28,10 +28,9 @@ public class SegmentController {
     @PostMapping("/parse")
     public ResponseEntity<Map<String, Object>> parseNLQuery(
             @RequestBody NLQueryRequest request) {
-        // Call Gemini to get rules JSON
         String rulesJson = aiService.parseNLToRules(request.getQuery());
-        // Run rules against DB, return count + sample
         Map<String, Object> preview = segmentService.previewRules(rulesJson);
+        preview.put("message", aiService.generateMessageTemplate(request.getQuery()));
         return ResponseEntity.ok(preview);
     }
 
@@ -50,5 +49,14 @@ public class SegmentController {
     @GetMapping("/{id}")
     public ResponseEntity<SegmentResponse> getSegment(@PathVariable UUID id) {
         return ResponseEntity.ok(segmentService.getSegmentById(id));
+    }
+
+    @PostMapping("/generate-message")
+    public ResponseEntity<Map<String, String>> generateMessage(
+            @RequestBody Map<String, String> body) {
+        String msg = aiService.generateMessageTemplate(
+                body.get("segmentDescription")
+        );
+        return ResponseEntity.ok(Map.of("message", msg));
     }
 }

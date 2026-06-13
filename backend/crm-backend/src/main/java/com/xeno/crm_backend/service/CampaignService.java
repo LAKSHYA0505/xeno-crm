@@ -253,8 +253,8 @@ public class CampaignService {
     }
 
     private void checkAndCompleteCampaign(UUID campaignId) {
-        long total   = campaignLogRepository.countByCampaign_Id(campaignId);
-        long queued  = campaignLogRepository.countByCampaign_IdAndStatus(
+        long total  = campaignLogRepository.countByCampaign_Id(campaignId);
+        long queued = campaignLogRepository.countByCampaign_IdAndStatus(
                 campaignId, MessageStatus.QUEUED);
 
         if (queued == 0 && total > 0) {

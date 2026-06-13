@@ -16,7 +16,9 @@ export const segmentApi = {
   getAll: () => api.get('/api/segments'),
   getById: (id: string | number) => api.get(`/api/segments/${id}`),
   parse: (query: string) => api.post('/api/segments/parse', { query }),
-  create: (data: Record<string, unknown>) => api.post('/api/segments', data)
+  create: (data: Record<string, unknown>) => api.post('/api/segments', data),
+  generateMessage:  (segmentDescription: string) =>   
+    api.post('/api/segments/generate-message', { segmentDescription }),
 }
 
 export const campaignApi = {

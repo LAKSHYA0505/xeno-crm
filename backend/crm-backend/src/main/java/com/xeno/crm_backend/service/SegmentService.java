@@ -181,11 +181,23 @@ public class SegmentService {
             // Scalar fields → WHERE, not HAVING
             case "city" -> {
                 params.put(paramName, value);
-                whereClauses.add("c.city = :%s".formatted(paramName));
+                whereClauses.add("LOWER(c.city) = LOWER(:%s)".formatted(paramName));
             }
             case "gender" -> {
                 params.put(paramName, value);
-                whereClauses.add("c.gender = :%s".formatted(paramName));
+                whereClauses.add("LOWER(c.gender) = LOWER(:%s)".formatted(paramName));
+            }
+            case "product_category" -> {
+                params.put(paramName, value);
+                whereClauses.add("""
+                        EXISTS (
+                            SELECT 1 FROM orders o_cat
+                            WHERE o_cat.customer_id = c.id
+                            AND EXISTS (
+                                SELECT 1 FROM jsonb_array_elements(o_cat.items) item
+                                WHERE LOWER(item->>'category') = LOWER(:%s)
+                            )
+                        )""".formatted(paramName));
             }
         }
     }
