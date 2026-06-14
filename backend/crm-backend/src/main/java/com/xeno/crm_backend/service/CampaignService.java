@@ -1,6 +1,5 @@
 package com.xeno.crm_backend.service;
 
-
 import com.xeno.crm_backend.domain.entity.*;
 import com.xeno.crm_backend.domain.enums.CampaignStatus;
 import com.xeno.crm_backend.domain.enums.MessageStatus;
@@ -12,14 +11,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.http.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -28,23 +26,44 @@ import java.util.*;
 @Slf4j
 public class CampaignService {
 
-    private final CampaignRepository       campaignRepository;
-    private final CampaignLogRepository    campaignLogRepository;
-    private final CampaignEventRepository  campaignEventRepository;
-    private final SegmentRepository        segmentRepository;
+    private final CampaignRepository        campaignRepository;
+    private final CampaignLogRepository     campaignLogRepository;
+    private final CampaignEventRepository   campaignEventRepository;
+    private final SegmentRepository         segmentRepository;
     private final SegmentCustomerRepository segmentCustomerRepository;
-    private final CustomerRepository       customerRepository;
-    private final OrderRepository          orderRepository;
-    private final AIService                aiService;
-    private final RestTemplate             restTemplate;
+    private final CustomerRepository        customerRepository;
+    private final OrderRepository           orderRepository;
+    private final AIService                 aiService;
+    private final RestTemplate              restTemplate;
 
     @Value("${channel.service.url:http://localhost:9090}")
     private String channelServiceUrl;
 
     @Lazy
     private final SegmentService segmentService;
-
     private final AsyncSenderService asyncSenderService;
+
+    // ---------------------------------------------------
+    // Cumulative funnel buckets — a log counts toward a stage
+    // if it reached that stage OR ANY LATER stage.
+    // This is what makes the funnel monotonic
+    // (sent >= delivered >= opened >= clicked >= converted).
+    // ---------------------------------------------------
+    private static final List<MessageStatus> REACHED_SENT = List.of(
+            MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.OPENED,
+            MessageStatus.READ, MessageStatus.CLICKED, MessageStatus.CONVERTED);
+
+    private static final List<MessageStatus> REACHED_DELIVERED = List.of(
+            MessageStatus.DELIVERED, MessageStatus.OPENED, MessageStatus.READ,
+            MessageStatus.CLICKED, MessageStatus.CONVERTED);
+
+    private static final List<MessageStatus> REACHED_OPENED = List.of(
+            MessageStatus.OPENED, MessageStatus.READ,
+            MessageStatus.CLICKED, MessageStatus.CONVERTED);
+
+    private static final List<MessageStatus> REACHED_CLICKED = List.of(
+            MessageStatus.CLICKED, MessageStatus.CONVERTED);
+
     // ---------------------------------------------------
     // CREATE campaign (draft)
     // ---------------------------------------------------
@@ -83,10 +102,6 @@ public class CampaignService {
         Segment segment = campaign.getSegment();
 
         // Step 1 — Re-execute rules to get fresh customer list
-        // (segment may have been created days ago)
-        // We stored rules in segment, re-run them now
-        // For simplicity use segment_customers if already populated,
-        // otherwise re-execute rules
         List<UUID> customerIds = getOrMaterializeSegmentCustomers(segment);
 
         // Step 2 — AI generates personalized message template
@@ -104,11 +119,9 @@ public class CampaignService {
         // Step 3 — Create campaign_logs per customer
         List<CampaignLog> logs = new ArrayList<>();
         for (UUID customerId : customerIds) {
-            Customer customer = customerRepository.findById(customerId)
-                    .orElse(null);
+            Customer customer = customerRepository.findById(customerId).orElse(null);
             if (customer == null) continue;
 
-            // Personalize message
             String personalized = personalizeMessage(template, customer);
 
             CampaignLog log = CampaignLog.builder()
@@ -127,13 +140,10 @@ public class CampaignService {
         campaign.setLaunchedAt(LocalDateTime.now());
         campaignRepository.save(campaign);
 
-        // Step 5 — Fire async sends (non-blocking)
-        List<UUID> logIds = logs.stream()
-                .map(CampaignLog::getId)
-                .toList();
+        // Step 5 — Fire async sends (non-blocking, after commit)
+        List<UUID> logIds = logs.stream().map(CampaignLog::getId).toList();
         String channel = campaign.getChannel();
 
-        // Defer async send until AFTER this transaction commits
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {
                     @Override
@@ -156,14 +166,23 @@ public class CampaignService {
 
         MessageStatus newStatus = parseStatus(receipt.getStatus());
 
-        // Only advance status, never go backwards
-        if (shouldUpdateStatus(log.getStatus(), newStatus)) {
+        boolean advanced = shouldUpdateStatus(log.getStatus(), newStatus);
+        if (advanced) {
             log.setStatus(newStatus);
             log.setUpdatedAt(LocalDateTime.now());
-            campaignLogRepository.save(log);
         }
 
-        // Always record the event (append-only)
+        // Record revenue ONCE — guard against duplicate 'converted' callbacks
+        // double-counting (channel service retries up to 3x).
+        if (newStatus == MessageStatus.CONVERTED
+                && receipt.getOrderValue() != null
+                && log.getOrderValue() == null) {
+            log.setOrderValue(receipt.getOrderValue());
+        }
+
+        campaignLogRepository.save(log);
+
+        // Always record the event (append-only audit trail)
         CampaignEvent event = CampaignEvent.builder()
                 .log(log)
                 .eventType(receipt.getStatus())
@@ -171,7 +190,6 @@ public class CampaignService {
                 .build();
         campaignEventRepository.save(event);
 
-        // Check if campaign is complete
         checkAndCompleteCampaign(log.getCampaign().getId());
     }
 
@@ -183,7 +201,6 @@ public class CampaignService {
                 .orElseThrow(() -> new RuntimeException("Campaign not found"));
         return toResponse(campaign);
     }
-
 
     public List<CampaignResponse> getAllCampaigns() {
         return campaignRepository.findAllByOrderByCreatedAtDesc()
@@ -200,15 +217,18 @@ public class CampaignService {
         Campaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new RuntimeException("Campaign not found"));
 
-        long sent      = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.SENT);
-        long delivered = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.DELIVERED);
-        long opened    = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.OPENED);
-        long clicked   = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.CLICKED);
-        long failed    = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.FAILED);
         long total     = campaignLogRepository.countByCampaign_Id(campaignId);
+        long sent      = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_SENT);
+        long delivered = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_DELIVERED);
+        long opened    = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_OPENED);
+        long clicked   = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_CLICKED);
+        long converted = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.CONVERTED);
+        long failed    = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.FAILED);
+
+        BigDecimal revenue = campaignLogRepository.sumOrderValueByCampaignId(campaignId);
 
         String summary = aiService.generateCampaignSummary(
-                total, delivered, opened, clicked, failed,
+                total, sent, delivered, opened, clicked, converted, revenue, failed,
                 campaign.getSegment().getDescription() != null
                         ? campaign.getSegment().getDescription()
                         : campaign.getSegment().getNlQuery()
@@ -222,34 +242,21 @@ public class CampaignService {
     // ---------------------------------------------------
     // PRIVATE HELPERS
     // ---------------------------------------------------
-
-
-
-
-
     private List<UUID> getOrMaterializeSegmentCustomers(Segment segment) {
         List<SegmentCustomer> existing =
                 segmentCustomerRepository.findBySegmentId(segment.getId());
-
         if (!existing.isEmpty()) {
-            return existing.stream()
-                    .map(SegmentCustomer::getCustomerId)
-                    .toList();
+            return existing.stream().map(SegmentCustomer::getCustomerId).toList();
         }
-
-        // Re-execute rules fresh at launch time
         return segmentService.executeRules(segment.getRules());
     }
 
     private String personalizeMessage(String template, Customer customer) {
-        // Get last product
         Order lastOrder = orderRepository.findLatestByCustomerId(customer.getId());
         String lastProduct = "our latest collection";
         if (lastOrder != null && lastOrder.getItems() != null) {
             try {
-                // items is JSON array string — extract first product name
                 String items = lastOrder.getItems();
-                // simple parse: find "name":"..."
                 int nameIdx = items.indexOf("\"name\":");
                 if (nameIdx >= 0) {
                     int start = items.indexOf("\"", nameIdx + 7) + 1;
@@ -258,20 +265,17 @@ public class CampaignService {
                 }
             } catch (Exception ignored) {}
         }
-
         return template
-                .replace("{{name}}", customer.getName().split(" ")[0])
-                .replace("{{last_product}}", lastProduct);
+                .replace("name", customer.getName().split(" ")[0])
+                .replace("last_product", lastProduct);
     }
 
     private void checkAndCompleteCampaign(UUID campaignId) {
-        long total = campaignLogRepository.countByCampaign_Id(campaignId);
-        long queued = campaignLogRepository.countByCampaign_IdAndStatus(
-                campaignId, MessageStatus.QUEUED);
-        long sent = campaignLogRepository.countByCampaign_IdAndStatus(
-                campaignId, MessageStatus.SENT);
+        long total  = campaignLogRepository.countByCampaign_Id(campaignId);
+        long queued = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.QUEUED);
+        long sent   = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.SENT);
 
-        // Wait until async send + channel callbacks are fully done.
+        // Done when nothing is queued and nothing is still in-flight at SENT.
         if (queued == 0 && sent == 0 && total > 0) {
             campaignRepository.findById(campaignId).ifPresent(c -> {
                 if (c.getStatus() == CampaignStatus.LAUNCHED) {
@@ -283,28 +287,22 @@ public class CampaignService {
     }
 
     private boolean shouldUpdateStatus(MessageStatus current, MessageStatus incoming) {
-        // Terminal states — never overwrite
-        if (current == MessageStatus.FAILED || current == MessageStatus.CLICKED) {
+        if (current == MessageStatus.FAILED || current == MessageStatus.CONVERTED) {
             return false;
         }
-
-        // FAILED can only be set from QUEUED or SENT
         if (incoming == MessageStatus.FAILED) {
             return current == MessageStatus.QUEUED || current == MessageStatus.SENT;
         }
-
         List<MessageStatus> order = List.of(
                 MessageStatus.QUEUED,
                 MessageStatus.SENT,
                 MessageStatus.DELIVERED,
                 MessageStatus.OPENED,
                 MessageStatus.READ,
-                MessageStatus.CLICKED
+                MessageStatus.CLICKED,
+                MessageStatus.CONVERTED
         );
-
-        int currentIdx  = order.indexOf(current);
-        int incomingIdx = order.indexOf(incoming);
-        return incomingIdx > currentIdx;
+        return order.indexOf(incoming) > order.indexOf(current);
     }
 
     private MessageStatus parseStatus(String status) {
@@ -315,18 +313,26 @@ public class CampaignService {
             case "opened"    -> MessageStatus.OPENED;
             case "read"      -> MessageStatus.READ;
             case "clicked"   -> MessageStatus.CLICKED;
+            case "converted" -> MessageStatus.CONVERTED;
             default          -> MessageStatus.DELIVERED;
         };
     }
 
     private CampaignResponse toResponse(Campaign c) {
-        long total     = campaignLogRepository.countByCampaign_Id(c.getId());
-        long queued    = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.QUEUED);
-        long sent      = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.SENT);
-        long delivered = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.DELIVERED);
-        long failed    = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.FAILED);
-        long opened    = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.OPENED);
-        long clicked   = campaignLogRepository.countByCampaign_IdAndStatus(c.getId(), MessageStatus.CLICKED);
+        UUID id = c.getId();
+
+        long total     = campaignLogRepository.countByCampaign_Id(id);
+        long queued    = campaignLogRepository.countByCampaign_IdAndStatus(id, MessageStatus.QUEUED);
+        long failed    = campaignLogRepository.countByCampaign_IdAndStatus(id, MessageStatus.FAILED);
+
+        // Cumulative funnel counts (reached-stage-or-beyond) — THE FIX.
+        long sent      = campaignLogRepository.countByCampaign_IdAndStatusIn(id, REACHED_SENT);
+        long delivered = campaignLogRepository.countByCampaign_IdAndStatusIn(id, REACHED_DELIVERED);
+        long opened    = campaignLogRepository.countByCampaign_IdAndStatusIn(id, REACHED_OPENED);
+        long clicked   = campaignLogRepository.countByCampaign_IdAndStatusIn(id, REACHED_CLICKED);
+        long converted = campaignLogRepository.countByCampaign_IdAndStatus(id, MessageStatus.CONVERTED);
+
+        BigDecimal totalRevenue = campaignLogRepository.sumOrderValueByCampaignId(id);
 
         return CampaignResponse.builder()
                 .id(c.getId())
@@ -346,6 +352,8 @@ public class CampaignService {
                 .failed(failed)
                 .opened(opened)
                 .clicked(clicked)
+                .converted(converted)
+                .totalRevenue(totalRevenue)
                 .build();
     }
 }

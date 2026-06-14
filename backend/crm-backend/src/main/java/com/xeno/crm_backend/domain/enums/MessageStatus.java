@@ -7,5 +7,6 @@ public enum MessageStatus {
     FAILED,
     OPENED,
     READ,
-    CLICKED
+    CLICKED,
+    CONVERTED
 }

@@ -5,6 +5,7 @@ import com.xeno.crm_backend.domain.enums.CampaignStatus;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -29,4 +30,8 @@ public class CampaignResponse {
     private Long failed;
     private Long opened;
     private Long clicked;
+
+    //stats
+    private long converted;
+    private BigDecimal totalRevenue;
 }

@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -39,6 +40,9 @@ public class CampaignLog {
 
     @Column(name = "retry_count")
     private Integer retryCount = 0;
+
+    @Column(name = "order_value")
+    private BigDecimal orderValue;
 
     @Column(name = "sent_at")
     private LocalDateTime sentAt;

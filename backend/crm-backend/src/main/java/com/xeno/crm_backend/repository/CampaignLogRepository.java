@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,4 +27,9 @@ public interface CampaignLogRepository extends JpaRepository<CampaignLog, UUID> 
     //Count messages with a specific status for a campaign
 
     List<CampaignLog> findByCampaign_IdAndStatus(UUID campaignId, MessageStatus status);
+
+    @Query("SELECT COALESCE(SUM(l.orderValue), 0) FROM CampaignLog l WHERE l.campaign.id = :campaignId")
+    BigDecimal sumOrderValueByCampaignId(@Param("campaignId") UUID campaignId);
+
+    long countByCampaign_IdAndStatusIn(UUID campaignId, Collection<MessageStatus> statuses);
 }

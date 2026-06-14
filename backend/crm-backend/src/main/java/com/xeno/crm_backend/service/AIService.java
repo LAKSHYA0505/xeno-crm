@@ -6,6 +6,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -53,27 +54,27 @@ public class AIService {
     }
 
     public String generateCampaignSummary(
-            long sent, long delivered, long opened,
-            long clicked, long failed, String segmentDescription) {
+            long total, long sent, long delivered, long opened,
+            long clicked, long converted, BigDecimal revenue,
+            long failed, String segmentDescription) {
 
         String prompt = """
-            Summarize this marketing campaign performance for a non-technical marketer.
-            Be concise, warm, and actionable. Max 3 sentences.
+            Summarize this WhatsApp campaign for a D2C footwear brand marketer.
+            Be concise, warm, actionable. Max 3 sentences.
             
-            Campaign target: %s
-            Sent: %d
-            Delivered: %d (%.1f%%)
-            Opened: %d (%.1f%%)
-            Clicked: %d (%.1f%%)
-            Failed: %d
+            Target: %s
+            Sent: %d | Delivered: %d (%.1f%%) | Opened: %d (%.1f%%)
+            | Clicked: %d (%.1f%%) | Orders: %d | Revenue: ₹%s | Failed: %d
             
-            Give one specific recommendation at the end.
+            Highlight the revenue impact and end with one specific recommendation.
             """.formatted(
                 segmentDescription,
                 sent,
-                delivered, sent > 0 ? (delivered * 100.0 / sent) : 0,
-                opened, delivered > 0 ? (opened * 100.0 / delivered) : 0,
-                clicked, opened > 0 ? (clicked * 100.0 / opened) : 0,
+                delivered, sent > 0       ? (delivered * 100.0 / sent)      : 0.0,
+                opened,    delivered > 0   ? (opened    * 100.0 / delivered) : 0.0,
+                clicked,   opened > 0      ? (clicked   * 100.0 / opened)    : 0.0,
+                converted,
+                revenue != null ? revenue.toPlainString() : "0",
                 failed);
 
         return callGroq(prompt);

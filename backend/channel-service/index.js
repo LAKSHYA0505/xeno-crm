@@ -8,12 +8,11 @@ app.use(express.json());
 const CRM_RECEIPT_URL = process.env.CRM_RECEIPT_URL || 'http://localhost:8087/api/receipt';
 const PORT = process.env.PORT || 9090;
 
-// Shorter delays keep demos responsive; long delays pile up across launches.
-const DELIVERY_DELAY_MS = [400, 1500];
-const OPEN_DELAY_MS     = [600, 2000];
-const CLICK_DELAY_MS    = [400, 1200];
+const DELIVERY_DELAY_MS    = [400, 1500];
+const OPEN_DELAY_MS        = [600, 2000];
+const CLICK_DELAY_MS       = [400, 1200];
+const CONVERSION_DELAY_MS  = [800, 2500]; // ← new
 
-// Cap parallel simulations so callbacks do not flood the CRM after the first launch.
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 6);
 
 const OUTCOMES = [
@@ -29,6 +28,12 @@ const ENGAGEMENT = [
 const CLICK = [
     { status: 'clicked', weight: 25 },
     { status: 'skipped', weight: 75 },
+];
+
+// 30% of clickers convert
+const CONVERSION = [
+    { status: 'converted', weight: 30 },
+    { status: 'skipped',   weight: 70 },
 ];
 
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: MAX_CONCURRENT });
@@ -58,15 +63,23 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sendCallback(logId, status, attempt = 1) {
+// Order value range for footwear: ₹1500–₹8000
+function randomOrderValue() {
+    return Math.floor(Math.random() * (8000 - 1500 + 1)) + 1500;
+}
+
+// Updated sendCallback — optionally includes orderValue
+async function sendCallback(logId, status, attempt = 1, orderValue = null) {
     try {
-        await api.post(CRM_RECEIPT_URL, { logId, status });
-        console.log(`[callback] logId=${logId} status=${status}`);
+        const payload = { logId, status };
+        if (orderValue !== null) payload.orderValue = orderValue;
+        await api.post(CRM_RECEIPT_URL, payload);
+        console.log(`[callback] logId=${logId} status=${status}${orderValue ? ' value=₹' + orderValue : ''}`);
     } catch (err) {
         console.error(`[callback-error] logId=${logId} status=${status} attempt=${attempt}:`, err.message);
         if (attempt < 3) {
             await sleep(1000 * attempt);
-            return sendCallback(logId, status, attempt + 1);
+            return sendCallback(logId, status, attempt + 1, orderValue);
         }
     }
 }
@@ -90,6 +103,15 @@ async function simulateDelivery(logId, channel) {
     if (clickStatus === 'skipped') return;
 
     await sendCallback(logId, 'clicked');
+
+    // ── Conversion stage (new) ──────────────────────────────────────────────
+    await sleep(randomDelay(CONVERSION_DELAY_MS));
+    const conversionStatus = weightedRandom(CONVERSION);
+    if (conversionStatus === 'skipped') return;
+
+    const orderValue = randomOrderValue();
+    await sendCallback(logId, 'converted', 1, orderValue);
+    // ────────────────────────────────────────────────────────────────────────
 }
 
 function drainQueue() {
