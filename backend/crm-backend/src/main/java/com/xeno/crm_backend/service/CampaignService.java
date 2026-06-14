@@ -15,6 +15,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.*;
 
@@ -129,7 +131,17 @@ public class CampaignService {
         List<UUID> logIds = logs.stream()
                 .map(CampaignLog::getId)
                 .toList();
-        asyncSenderService.sendAll(logIds, campaign.getChannel());
+        String channel = campaign.getChannel();
+
+        // Defer async send until AFTER this transaction commits
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        asyncSenderService.sendAll(logIds, channel);
+                    }
+                }
+        );
 
         return toResponse(campaign);
     }
