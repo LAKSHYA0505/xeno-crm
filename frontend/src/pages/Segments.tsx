@@ -5,7 +5,7 @@ import { Button } from '../../@/components/ui/button'
 import { Input } from '../../@/components/ui/input'
 import { Badge } from '../../@/components/ui/badge'
 import { Skeleton } from '../../@/components/ui/skeleton'
-import { Sparkles, Users, Plus } from 'lucide-react'
+import { Sparkles, Users, Plus, Filter } from 'lucide-react'
 
 export default function Segments() {
   const [segments, setSegments]   = useState<any[]>([])
@@ -14,9 +14,10 @@ export default function Segments() {
   const [preview, setPreview]     = useState<any>(null)
   const [saving, setSaving]       = useState(false)
   const [segName, setSegName]     = useState('')
+  const [loading, setLoading]     = useState(true)
 
   useEffect(() => {
-    segmentApi.getAll().then(r => setSegments(r.data))
+    segmentApi.getAll().then(r => setSegments(r.data)).finally(() => setLoading(false))
   }, [])
 
   async function handleParse() {
@@ -67,7 +68,7 @@ export default function Segments() {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
-            <Sparkles size={14} className="text-indigo-400" />
+            <Sparkles size={14} className="text-indigo-500" />
             AI Segment Builder
           </CardTitle>
         </CardHeader>
@@ -101,8 +102,24 @@ export default function Segments() {
                 <Badge variant="secondary">AI Generated</Badge>
               </div>
 
-              <div className="text-xs text-muted-foreground font-mono bg-background rounded p-2">
-                {JSON.stringify(JSON.parse(preview.rules), null, 2)}
+              <div className="flex flex-wrap gap-1.5">
+                {(() => {
+                  try {
+                    const r = JSON.parse(preview.rules)
+                    return r.conditions?.map((c: any, i: number) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs"
+                      >
+                        <span className="font-medium text-indigo-600">{c.field}</span>
+                        <span className="text-muted-foreground">{c.op}</span>
+                        <span className="font-medium text-emerald-600">{String(c.value)}</span>
+                      </span>
+                    ))
+                  } catch {
+                    return <span className="text-xs text-muted-foreground font-mono">{preview.rules}</span>
+                  }
+                })()}
               </div>
 
               <div>
@@ -136,27 +153,46 @@ export default function Segments() {
 
       {/* Segments list */}
       <div className="grid grid-cols-2 gap-3">
-        {segments.map(s => (
-          <Card key={s.id}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">{s.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {s.nlQuery && (
-                <p className="text-xs text-muted-foreground italic">"{s.nlQuery}"</p>
-              )}
-              <div className="flex items-center justify-between">
-                <Badge variant="outline" className="text-xs">
-                  <Users size={10} className="mr-1" />
-                  {s.customerCount} customers
-                </Badge>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(s.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2"><Skeleton className="h-4 w-32" /></CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-5 w-24" />
+              </CardContent>
+            </Card>
+          ))
+        ) : segments.length === 0 ? (
+          <div className="col-span-2 flex flex-col items-center justify-center py-12 text-center">
+            <Filter className="text-muted-foreground mb-2" size={24} />
+            <p className="text-sm text-muted-foreground">
+              No segments yet — describe an audience above to create your first.
+            </p>
+          </div>
+        ) : (
+          segments.map(s => (
+            <Card key={s.id}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{s.name}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {s.nlQuery && (
+                  <p className="text-xs text-muted-foreground italic">"{s.nlQuery}"</p>
+                )}
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className="text-xs">
+                    <Users size={10} className="mr-1" />
+                    {s.customerCount} customers
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   )

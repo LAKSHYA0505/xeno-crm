@@ -5,12 +5,14 @@ import { Card, CardContent } from "../../@/components/ui/card";
 import { Button } from "../../@/components/ui/button";
 import { Input } from "../../@/components/ui/input";
 import { Badge } from "../../@/components/ui/badge";
-import { Plus, Rocket } from "lucide-react";
+import { Skeleton } from "../../@/components/ui/skeleton";
+import { Plus, Rocket, X, Megaphone } from "lucide-react";
 
 export default function Campaigns() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [segments, setSegments]   = useState<any[]>([]);
   const [open, setOpen]           = useState(false);
+  const [loading, setLoading]     = useState(true);
   const [form, setForm]           = useState({
     name: "", segmentId: "", messageTemplate: "", channel: "whatsapp",
   });
@@ -18,7 +20,7 @@ export default function Campaigns() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    campaignApi.getAll().then((r) => setCampaigns(r.data));
+    campaignApi.getAll().then((r) => setCampaigns(r.data)).finally(() => setLoading(false));
     segmentApi.getAll().then((r) => setSegments(r.data));
   }, []);
 
@@ -65,7 +67,7 @@ export default function Campaigns() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/50"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
           {/* Modal */}
@@ -74,9 +76,9 @@ export default function Campaigns() {
               <h2 className="text-lg font-semibold">Create Campaign</h2>
               <button
                 onClick={() => setOpen(false)}
-                className="text-muted-foreground hover:text-foreground text-xl leading-none"
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
-                ×
+                <X size={18} />
               </button>
             </div>
 
@@ -130,47 +132,70 @@ export default function Campaigns() {
 
       {/* Campaign List */}
       <div className="space-y-3">
-        {campaigns.map((c: any) => (
-          <Card
-            key={c.id}
-            className="cursor-pointer hover:bg-accent/50 transition-colors"
-            onClick={() => navigate(`/campaigns/${c.id}`)}
-          >
-            <CardContent className="flex items-center justify-between py-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium text-sm">{c.name}</p>
-                  <Badge variant={statusColor[c.status] ?? "outline"}>
-                    {c.status}
-                  </Badge>
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center justify-between py-4">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-64" />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {c.segmentName} · {c.channel} · {c.totalLogs} messages
-                </p>
-              </div>
-
-              <div className="flex items-center gap-6 text-xs text-muted-foreground">
-                <div className="text-center">
-                  <p className="font-semibold text-foreground">{c.delivered}</p>
-                  <p>delivered</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-foreground">{c.opened}</p>
-                  <p>opened</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold text-foreground">{c.clicked}</p>
-                  <p>clicked</p>
-                </div>
-                {c.status === "DRAFT" && (
-                  <Button size="sm" onClick={(e) => handleLaunch(c.id, e)}>
-                    <Rocket size={13} className="mr-1" />Launch
-                  </Button>
-                )}
-              </div>
+                <Skeleton className="h-8 w-24" />
+              </CardContent>
+            </Card>
+          ))
+        ) : campaigns.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <Megaphone className="text-muted-foreground mb-2" size={24} />
+              <p className="text-sm text-muted-foreground">
+                No campaigns yet — create one or launch from the Launch page.
+              </p>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          campaigns.map((c: any) => (
+            <Card
+              key={c.id}
+              className="cursor-pointer hover:bg-accent/50 transition-colors"
+              onClick={() => navigate(`/campaigns/${c.id}`)}
+            >
+              <CardContent className="flex items-center justify-between py-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-sm">{c.name}</p>
+                    <Badge variant={statusColor[c.status] ?? "outline"}>
+                      {c.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {c.segmentName} · {c.channel} · {c.totalLogs} messages
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-6 text-xs text-muted-foreground">
+                  <div className="text-center">
+                    <p className="font-semibold text-foreground">{c.delivered}</p>
+                    <p>delivered</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-foreground">{c.opened}</p>
+                    <p>opened</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-foreground">{c.clicked}</p>
+                    <p>clicked</p>
+                  </div>
+                  {c.status === "DRAFT" && (
+                    <Button size="sm" onClick={(e) => handleLaunch(c.id, e)}>
+                      <Rocket size={13} className="mr-1" />Launch
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

@@ -7,6 +7,10 @@ import com.xeno.crm_backend.service.AIService;
 import com.xeno.crm_backend.service.SegmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.http.ResponseEntity;
+import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -58,5 +62,16 @@ public class SegmentController {
                 body.get("segmentDescription")
         );
         return ResponseEntity.ok(Map.of("message", msg));
+    }
+
+    // NL refine of an AI-drafted message
+    @PostMapping("/refine-message")
+    public ResponseEntity<Map<String, String>> refineMessage(
+            @RequestBody Map<String, String> body) {
+        String refined = aiService.refineMessage(
+                body.getOrDefault("message", ""),
+                body.getOrDefault("instruction", ""),
+                body.getOrDefault("segmentDescription", ""));
+        return ResponseEntity.ok(Map.of("message", refined));
     }
 }

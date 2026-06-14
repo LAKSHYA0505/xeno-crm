@@ -4,6 +4,8 @@ import com.xeno.crm_backend.dto.request.CampaignRequest;
 import com.xeno.crm_backend.dto.request.ReceiptRequest;
 import com.xeno.crm_backend.dto.response.CampaignResponse;
 import com.xeno.crm_backend.service.CampaignService;
+import com.xeno.crm_backend.dto.request.FollowUpRequest;
+import com.xeno.crm_backend.dto.response.FollowUpRecommendation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -51,4 +53,19 @@ public class CampaignController {
         campaignService.processReceipt(receipt);
         return ResponseEntity.ok().build();
     }
+
+    // AI suggests who to re-target next (non-openers) — no writes
+    @GetMapping("/api/campaigns/{id}/follow-up-recommendation")
+    public ResponseEntity<FollowUpRecommendation> followUpRecommendation(@PathVariable UUID id) {
+        return ResponseEntity.ok(campaignService.getFollowUpRecommendation(id));
+    }
+
+    // Marketer approves → create + launch the follow-up campaign
+    @PostMapping("/api/campaigns/{id}/follow-up")
+    public ResponseEntity<CampaignResponse> followUp(
+            @PathVariable UUID id,
+            @RequestBody(required = false) FollowUpRequest req) {
+        return ResponseEntity.ok(campaignService.createAndLaunchFollowUp(id, req));
+    }
+
 }

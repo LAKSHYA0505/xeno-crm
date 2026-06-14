@@ -38,6 +38,14 @@
     aiSummary:    string | null
   }
 
+  interface FollowUpRec {
+  basis: string
+  targetCount: number
+  suggestedChannel: string
+  suggestedMessage: string
+  reason: string
+}
+
   type Stage = 'input' | 'preview' | 'launching' | 'stats'
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +118,9 @@
     const [campaignName,   setCampaignName]   = useState('')
     const [editingMessage, setEditingMessage] = useState(false)
     const [draftMessage,   setDraftMessage]   = useState('')
+    // Feature 1: NL refine
+    const [refineInstr, setRefineInstr] = useState('')
+    const [refining,    setRefining]    = useState(false)
 
     // Stage 3
     const [launchProgress, setLaunchProgress] = useState(0)
@@ -118,6 +129,12 @@
     const [campaignId,     setCampaignId]     = useState<string | null>(null)
     const [stats,          setStats]          = useState<Stats | null>(null)
     const [loadingSummary, setLoadingSummary] = useState(false)
+    // Feature 2: AI follow-up
+    const [followUp,    setFollowUp]    = useState<FollowUpRec | null>(null)
+    const [loadingRec,  setLoadingRec]  = useState(false)
+    const [fuMessage,   setFuMessage]   = useState('')
+    const [fuChannel,   setFuChannel]   = useState<Channel>('sms')
+    const [launchingFu, setLaunchingFu] = useState(false)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Stage 1 → 2
@@ -218,6 +235,60 @@
       }
     }
 
+    // Feature 1 — refine the draft message via natural language
+    async function handleRefine() {
+      if (!refineInstr.trim()) return
+      setRefining(true)
+      try {
+        const r = await api.post('/api/segments/refine-message', {
+          message: draftMessage,
+          instruction: refineInstr,
+          segmentDescription: nlQuery,
+        })
+        setDraftMessage(r.data.message)
+        setRefineInstr('')
+      } catch {
+        alert('Refine failed — try again.')
+      } finally {
+        setRefining(false)
+      }
+    }
+
+    // Feature 2 — ask AI who to re-target next
+    async function handleGetRecommendation() {
+      if (!campaignId) return
+      setLoadingRec(true)
+      try {
+        const r = await api.get(`/api/campaigns/${campaignId}/follow-up-recommendation`)
+        setFollowUp(r.data)
+        setFuMessage(r.data.suggestedMessage || '')
+        setFuChannel((r.data.suggestedChannel || 'sms') as Channel)
+      } catch (e: any) {
+        alert('Recommendation failed: ' + (e?.response?.data?.message ?? e.message))
+      } finally {
+        setLoadingRec(false)
+      }
+    }
+
+    // Feature 2 — marketer approves → launch follow-up, repoint the live dashboard
+    async function handleLaunchFollowUp() {
+      if (!campaignId) return
+      setLaunchingFu(true)
+      try {
+        const r = await api.post(`/api/campaigns/${campaignId}/follow-up`, {
+          message: fuMessage,
+          channel: fuChannel,
+        })
+        setCampaignId(r.data.id)  // polling now tracks the follow-up campaign
+        setStats(r.data)
+        setFollowUp(null)
+        setStage('stats')
+      } catch (e: any) {
+        alert('Follow-up launch failed: ' + (e?.response?.data?.message ?? e.message))
+      } finally {
+        setLaunchingFu(false)
+      }
+    }
     // ─────────────────────────────────────────────────────────────────────────
     // Reset
     // ─────────────────────────────────────────────────────────────────────────
@@ -428,6 +499,25 @@
                   >
                     {editingMessage ? 'Done' : 'Edit'}
                   </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="flex-1 border rounded-lg px-3 py-1.5 text-xs bg-background
+                              focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder='Tell AI how to change it — e.g. "more urgent, add 10% off"'
+                    value={refineInstr}
+                    onChange={e => setRefineInstr(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleRefine() }}
+                  />
+                  <Button
+                    size="sm" variant="outline"
+                    disabled={refining || !refineInstr.trim()}
+                    onClick={handleRefine}
+                  >
+                    {refining
+                      ? <Loader2 size={12} className="animate-spin" />
+                      : <><Sparkles size={12} className="mr-1" /> Refine</>}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -676,6 +766,68 @@
                 </CardContent>
               </Card>
 
+              {/* AI Recommended Next Step */}
+              <Card>
+                <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Sparkles size={13} className="text-indigo-400" />
+                    AI Recommended Next Step
+                  </CardTitle>
+                  {!followUp && (
+                    <Button size="sm" variant="outline"
+                      onClick={handleGetRecommendation} disabled={loadingRec}>
+                      {loadingRec
+                        ? <><Loader2 size={12} className="animate-spin mr-1.5" /> Thinking…</>
+                        : 'Get recommendation'}
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!followUp && !loadingRec && (
+                    <p className="text-xs text-muted-foreground">
+                      Let AI find who to re-target next based on this campaign's results.
+                    </p>
+                  )}
+                  {loadingRec && <AiThinking label="Analyzing who to re-engage…" />}
+                  {followUp && (followUp.targetCount === 0 ? (
+                    <p className="text-sm text-muted-foreground">{followUp.reason}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm leading-relaxed">{followUp.reason}</p>
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
+                        <Badge className="bg-indigo-100 text-indigo-700 border-0">
+                          {followUp.targetCount} non-openers
+                        </Badge>
+                        <span className="text-muted-foreground">Channel:</span>
+                        <div className="flex gap-1.5">
+                          {(['whatsapp','sms','email'] as Channel[]).map(c => (
+                            <button key={c} onClick={() => setFuChannel(c)}
+                              className={`px-2 py-0.5 rounded-full border text-xs ${
+                                fuChannel === c
+                                  ? 'bg-indigo-600 border-indigo-600 text-white'
+                                  : 'border-border text-muted-foreground hover:border-indigo-400'}`}>
+                              {CHANNEL_LABELS[c]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <textarea rows={3}
+                        className="w-full border rounded-lg px-3 py-2 text-sm bg-background
+                                  resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={fuMessage}
+                        onChange={e => setFuMessage(e.target.value)} />
+                      <Button
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                        disabled={launchingFu || !fuMessage.trim()}
+                        onClick={handleLaunchFollowUp}>
+                        {launchingFu
+                          ? <><Loader2 size={13} className="animate-spin mr-2" /> Launching…</>
+                          : <><Rocket size={13} className="mr-2" /> Launch follow-up to {followUp.targetCount} customers</>}
+                      </Button>
+                    </>
+                  ))}
+                </CardContent>
+              </Card>
               {/* Actions */}
               <div className="flex gap-3">
                 <Button

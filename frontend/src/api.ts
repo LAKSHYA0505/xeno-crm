@@ -19,6 +19,8 @@ export const segmentApi = {
   create: (data: Record<string, unknown>) => api.post('/api/segments', data),
   generateMessage:  (segmentDescription: string) =>   
     api.post('/api/segments/generate-message', { segmentDescription }),
+  refineMessage: (message: string, instruction: string, segmentDescription: string) =>
+  api.post('/api/segments/refine-message', { message, instruction, segmentDescription }),
 }
 
 export const campaignApi = {
@@ -26,7 +28,11 @@ export const campaignApi = {
   getById: (id: string | number) => api.get(`/api/campaigns/${id}`),
   create: (data: Record<string, unknown>) => api.post('/api/campaigns', data),
   launch: (id: string | number) => api.post(`/api/campaigns/${id}/launch`),
-  aiSummary: (id: string | number) => api.post(`/api/campaigns/${id}/ai-summary`)
+  aiSummary: (id: string | number) => api.post(`/api/campaigns/${id}/ai-summary`),
+  followUpRecommendation: (id: string | number) =>
+  api.get(`/api/campaigns/${id}/follow-up-recommendation`),
+  followUp: (id: string | number, data: Record<string, unknown>) =>
+    api.post(`/api/campaigns/${id}/follow-up`, data),
 }
 
 export default api

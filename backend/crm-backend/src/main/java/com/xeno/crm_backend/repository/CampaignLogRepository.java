@@ -31,5 +31,11 @@ public interface CampaignLogRepository extends JpaRepository<CampaignLog, UUID> 
     @Query("SELECT COALESCE(SUM(l.orderValue), 0) FROM CampaignLog l WHERE l.campaign.id = :campaignId")
     BigDecimal sumOrderValueByCampaignId(@Param("campaignId") UUID campaignId);
 
+    @Query("SELECT l.customer.id FROM CampaignLog l "
+            + "WHERE l.campaign.id = :cid AND l.status IN :statuses")
+    List<UUID> findCustomerIdsByCampaignAndStatusIn(
+            @Param("cid") UUID campaignId,
+            @Param("statuses") Collection<MessageStatus> statuses);
+
     long countByCampaign_IdAndStatusIn(UUID campaignId, Collection<MessageStatus> statuses);
 }

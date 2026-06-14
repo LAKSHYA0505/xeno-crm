@@ -99,6 +99,46 @@ public class AIService {
         return callGroq(prompt);
     }
 
+    // ── NL refine of an existing message ───────────────────────────────
+    public String refineMessage(String currentMessage, String instruction,
+                                String audienceDescription) {
+        String prompt = """
+        You are editing a marketing message for a D2C sneaker brand called SoleStreet.
+        Target audience: %s
+
+        Current message:
+        "%s"
+
+        Apply this instruction from the marketer: %s
+
+        Rules:
+        - Keep the name and last_product placeholders intact if present.
+        - Keep it under 160 characters.
+        - Friendly, conversational tone. No hashtags.
+        - Return ONLY the rewritten message text, nothing else.
+        """.formatted(audienceDescription, currentMessage, instruction);
+        return callGroq(prompt);
+    }
+
+    // ── One-sentence justification for a re-targeting follow-up ─────────
+    public String recommendFollowUp(String audienceDescription, long delivered,
+                                    long opened, long clicked, long converted,
+                                    long nonOpeners, String suggestedChannel) {
+        String prompt = """
+        You are a CRM growth strategist for a D2C footwear brand.
+        A campaign just finished targeting: %s
+
+        Results: delivered=%d, opened=%d, clicked=%d, orders=%d.
+        %d customers received the message but never opened it.
+
+        In ONE short sentence (max 30 words), explain why re-targeting those
+        %d non-openers on %s is worth doing. Be specific and action-oriented.
+        Return ONLY the sentence.
+        """.formatted(audienceDescription, delivered, opened, clicked,
+                converted, nonOpeners, nonOpeners, suggestedChannel);
+        return callGroq(prompt);
+    }
+
     // ---------------------------------------------------
     // Core Groq API caller (OpenAI-compatible format)
     // ---------------------------------------------------

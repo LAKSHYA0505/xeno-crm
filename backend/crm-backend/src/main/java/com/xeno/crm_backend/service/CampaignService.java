@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
+import com.xeno.crm_backend.dto.request.FollowUpRequest;
+import com.xeno.crm_backend.dto.response.FollowUpRecommendation;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -266,8 +268,8 @@ public class CampaignService {
             } catch (Exception ignored) {}
         }
         return template
-                .replace("name", customer.getName().split(" ")[0])
-                .replace("last_product", lastProduct);
+                .replace("{" + "{name}" + "}", customer.getName().split(" ")[0])
+                .replace("{" + "{last_product}" + "}", lastProduct);
     }
 
     private void checkAndCompleteCampaign(UUID campaignId) {
@@ -316,6 +318,120 @@ public class CampaignService {
             case "converted" -> MessageStatus.CONVERTED;
             default          -> MessageStatus.DELIVERED;
         };
+    }
+
+    // ── AI follow-up: recommendation (no DB writes) ────────────────────
+    public FollowUpRecommendation getFollowUpRecommendation(UUID campaignId) {
+        Campaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new RuntimeException("Campaign not found"));
+
+        long delivered = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_DELIVERED);
+        long opened    = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_OPENED);
+        long clicked   = campaignLogRepository.countByCampaign_IdAndStatusIn(campaignId, REACHED_CLICKED);
+        long converted = campaignLogRepository.countByCampaign_IdAndStatus(campaignId, MessageStatus.CONVERTED);
+
+        // Non-openers = delivered but never advanced past DELIVERED (funnel is monotonic)
+        List<UUID> nonOpenerIds = campaignLogRepository
+                .findCustomerIdsByCampaignAndStatusIn(campaignId, List.of(MessageStatus.DELIVERED));
+
+        String audience = audienceOf(campaign);
+        String suggestedChannel = escalateChannel(campaign.getChannel());
+
+        String reason;
+        String message;
+        if (nonOpenerIds.isEmpty()) {
+            reason  = "Every delivered message was opened — no non-openers to re-target right now.";
+            message = "";
+        } else {
+            reason  = aiService.recommendFollowUp(audience, delivered, opened, clicked,
+                    converted, nonOpenerIds.size(), suggestedChannel);
+            message = aiService.generateMessageTemplate(
+                    "Re-engage customers from \"" + audience + "\" who received but did NOT open "
+                            + "the previous message. Use a fresh hook and a clear reason to look again.");
+        }
+
+        return FollowUpRecommendation.builder()
+                .sourceCampaignId(campaignId)
+                .basis("non-openers")
+                .targetCount(nonOpenerIds.size())
+                .suggestedChannel(suggestedChannel)
+                .suggestedMessage(message)
+                .reason(reason)
+                .build();
+    }
+
+    // ── AI follow-up: create explicit-membership segment + campaign, then launch ──
+    @Transactional
+    public CampaignResponse createAndLaunchFollowUp(UUID sourceCampaignId, FollowUpRequest req) {
+        Campaign source = campaignRepository.findById(sourceCampaignId)
+                .orElseThrow(() -> new RuntimeException("Campaign not found"));
+
+        List<UUID> targetIds = campaignLogRepository
+                .findCustomerIdsByCampaignAndStatusIn(sourceCampaignId, List.of(MessageStatus.DELIVERED));
+        if (targetIds.isEmpty()) {
+            throw new RuntimeException("No non-openers to re-target.");
+        }
+
+        String audience = audienceOf(source);
+
+        // 1) Explicit-membership segment. rules is valid JSON but never executed,
+        //    because we pre-materialize segment_customers below and
+        //    getOrMaterializeSegmentCustomers() returns existing rows first.
+        Segment segment = segmentRepository.save(Segment.builder()
+                .name("Re-engage · " + truncate(source.getName(), 60))
+                .description("Non-openers from \"" + audience + "\"")
+                .nlQuery("Follow-up: customers who did not open \"" + audience + "\"")
+                .rules("{\"operator\":\"AND\",\"conditions\":[],\"source\":\"followup\","
+                        + "\"parentCampaignId\":\"" + sourceCampaignId + "\"}")
+                .customerCount(targetIds.size())
+                .build());
+
+        UUID segId = segment.getId();
+        segmentCustomerRepository.saveAll(targetIds.stream()
+                .map(cid -> SegmentCustomer.builder().segmentId(segId).customerId(cid).build())
+                .toList());
+
+        // 2) Draft campaign (marketer-approved overrides win)
+        String channel = nonBlank(req != null ? req.getChannel() : null, escalateChannel(source.getChannel()));
+        String name    = nonBlank(req != null ? req.getName() : null, "Re-engage · " + truncate(source.getName(), 40));
+        String message = nonBlank(req != null ? req.getMessage() : null,
+                aiService.generateMessageTemplate("Re-engage non-openers from \"" + audience + "\"."));
+
+        Campaign followUp = campaignRepository.save(Campaign.builder()
+                .name(name)
+                .segment(segment)
+                .messageTemplate(message)
+                .channel(channel)
+                .status(CampaignStatus.DRAFT)
+                .build());
+
+        // 3) Launch it (membership already materialized → sends to exactly these customers)
+        return launchCampaign(followUp.getId());
+    }
+
+    // ── helpers ────────────────────────────────────────────────────────
+    private String audienceOf(Campaign c) {
+        return c.getSegment().getDescription() != null
+                ? c.getSegment().getDescription()
+                : c.getSegment().getNlQuery();
+    }
+
+    private String escalateChannel(String original) {
+        if (original == null) return "whatsapp";
+        return switch (original.toLowerCase()) {
+            case "whatsapp" -> "sms";
+            case "sms"      -> "email";
+            default          -> "whatsapp";
+        };
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    private String nonBlank(String value, String fallback) {
+        return (value != null && !value.isBlank()) ? value : fallback;
     }
 
     private CampaignResponse toResponse(Campaign c) {

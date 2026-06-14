@@ -3,25 +3,29 @@ import { useNavigate } from 'react-router-dom'
 import { campaignApi, customerApi, segmentApi } from '../api'
 import { Card, CardContent, CardHeader, CardTitle } from '../../@/components/ui/card'
 import { Badge } from '../../@/components/ui/badge'
+import { Skeleton } from '../../@/components/ui/skeleton'
 import { Users, Filter, Megaphone, Sparkles } from 'lucide-react'
 
 export default function Dashboard() {
   const [campaigns, setCampaigns]     = useState<any[]>([])
   const [customerCount, setCustomerCount] = useState(0)
   const [segmentCount, setSegmentCount]   = useState(0)
+  const [loading, setLoading]         = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    customerApi.getAll(0, 1).then(r => setCustomerCount(r.data.totalElements))
-    segmentApi.getAll().then(r => setSegmentCount(r.data.length))
-    campaignApi.getAll().then(r => setCampaigns(r.data.slice(0, 5)))
+    Promise.all([
+      customerApi.getAll(0, 1).then(r => setCustomerCount(r.data.totalElements)),
+      segmentApi.getAll().then(r => setSegmentCount(r.data.length)),
+      campaignApi.getAll().then(r => setCampaigns(r.data.slice(0, 5))),
+    ]).finally(() => setLoading(false))
   }, [])
 
   const stats = [
-    { label: 'Total Customers', value: customerCount, icon: Users },
-    { label: 'Segments',        value: segmentCount,  icon: Filter },
-    { label: 'Campaigns',       value: campaigns.length, icon: Megaphone },
-    { label: 'AI Features',     value: 3,             icon: Sparkles },
+    { label: 'Total Customers', value: customerCount,    icon: Users,    tint: 'bg-indigo-50 text-indigo-600' },
+    { label: 'Segments',        value: segmentCount,     icon: Filter,   tint: 'bg-blue-50 text-blue-600' },
+    { label: 'Campaigns',       value: campaigns.length, icon: Megaphone, tint: 'bg-violet-50 text-violet-600' },
+    { label: 'AI Features',     value: 3,                icon: Sparkles, tint: 'bg-emerald-50 text-emerald-600' },
   ]
 
   const statusColor: Record<string, string> = {
@@ -40,19 +44,33 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        {stats.map(({ label, value, icon: Icon }) => (
-          <Card key={label}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {label}
-              </CardTitle>
-              <Icon size={14} className="text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold">{value}</p>
-            </CardContent>
-          </Card>
-        ))}
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-7 w-7 rounded-md" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-8 w-12" />
+                </CardContent>
+              </Card>
+            ))
+          : stats.map(({ label, value, icon: Icon, tint }) => (
+              <Card key={label}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    {label}
+                  </CardTitle>
+                  <div className={`rounded-md p-1.5 ${tint}`}>
+                    <Icon size={14} />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold">{value}</p>
+                </CardContent>
+              </Card>
+            ))}
       </div>
 
       <Card>
@@ -60,7 +78,17 @@ export default function Dashboard() {
           <CardTitle className="text-sm font-semibold">Recent Campaigns</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {campaigns.length === 0 ? (
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg border">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-28" />
+                </div>
+                <Skeleton className="h-5 w-16" />
+              </div>
+            ))
+          ) : campaigns.length === 0 ? (
             <p className="text-muted-foreground text-sm">No campaigns yet.</p>
           ) : (
             campaigns.map(c => (
