@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS campaign_logs (
     status               VARCHAR(20) DEFAULT 'queued',
     retry_count          INT DEFAULT 0,
     sent_at              TIMESTAMP,
+    order_value           DECIMAL(10,2),
     updated_at           TIMESTAMP DEFAULT NOW(),
     UNIQUE(campaign_id, customer_id)
 );

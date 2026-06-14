@@ -10,11 +10,11 @@ random.seed(42)
 
 # --- DB CONNECTION ---
 conn = psycopg2.connect(
-    host="127.0.0.1",
-    database="xeno_crm",
+    host="thomas.proxy.rlwy.net",
+    database="railway",
     user="postgres",
-    password="postgres",
-    port=5433
+    password="evdyPtCkIdvESdDkDZszBiwfprWJlhIg",
+    port=21043
 )
 cur = conn.cursor()
 
