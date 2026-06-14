@@ -9,7 +9,7 @@
     Sparkles, Rocket, ChevronLeft, Users,
     MessageSquare, CheckCircle2, Loader2
   } from 'lucide-react'
-
+import CampaignVisuals from '../components/CampaignVisuals'
   // ─────────────────────────────────────────────────────────────────────────────
   // Types
   // ─────────────────────────────────────────────────────────────────────────────
@@ -763,6 +763,17 @@
                         : "Analysis available once the campaign is launched."}
                     </p>
                   )}
+                  {stats.aiSummary && !loadingSummary && (
+                  <CampaignVisuals
+                    totalLogs={stats.totalLogs}
+                    sent={stats.sent}
+                    delivered={stats.delivered}
+                    opened={stats.opened}
+                    clicked={stats.clicked}
+                    converted={stats.converted}
+                    failed={stats.failed}
+                  />
+                )}
                 </CardContent>
               </Card>
 

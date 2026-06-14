@@ -6,6 +6,7 @@ import { Button } from '../../@/components/ui/button'
 import { Badge } from '../../@/components/ui/badge'
 import { Skeleton } from '../../@/components/ui/skeleton'
 import { Sparkles, Rocket, RefreshCw } from 'lucide-react'
+import CampaignVisuals from '../components/CampaignVisuals'
 
 export default function CampaignDetail() {
   const { id } = useParams<{ id: string }>()
@@ -159,6 +160,17 @@ export default function CampaignDetail() {
               {summary || campaign.aiSummary}
             </p>
           )}
+          {(summary || campaign.aiSummary) && !loadingSummary && (
+          <CampaignVisuals
+            totalLogs={campaign.totalLogs}
+            sent={campaign.sent}
+            delivered={campaign.delivered}
+            opened={campaign.opened}
+            clicked={campaign.clicked}
+            converted={campaign.converted}
+            failed={campaign.failed}
+          />
+        )}
           {!summary && !campaign.aiSummary && !loadingSummary && (
             <p className="text-sm text-muted-foreground">
               Click "Generate Analysis" to get AI insights on this campaign.
