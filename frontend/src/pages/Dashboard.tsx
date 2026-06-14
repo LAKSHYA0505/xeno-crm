@@ -25,7 +25,7 @@ export default function Dashboard() {
     { label: 'Total Customers', value: customerCount,    icon: Users,    tint: 'bg-indigo-50 text-indigo-600' },
     { label: 'Segments',        value: segmentCount,     icon: Filter,   tint: 'bg-blue-50 text-blue-600' },
     { label: 'Campaigns',       value: campaigns.length, icon: Megaphone, tint: 'bg-violet-50 text-violet-600' },
-    { label: 'AI Features',     value: 3,                icon: Sparkles, tint: 'bg-emerald-50 text-emerald-600' },
+    { label: 'AI Magic',       value: '✨',            icon: Sparkles, tint: 'bg-yellow-50 text-yellow-600' },
   ]
 
   const statusColor: Record<string, string> = {
